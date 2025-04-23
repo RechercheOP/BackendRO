@@ -1,6 +1,15 @@
-from django.urls import path
-from rest_framework import routers
+# family/urls.py
 
-router = routers.DefaultRouter()
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
+from .views import FamilyViewSet, MemberViewSet, RelationViewSet, api_root
 
-urlpatterns = router.urls
+router = DefaultRouter()
+router.register(r'families', FamilyViewSet, basename='family')
+router.register(r'members', MemberViewSet, basename='member')
+router.register(r'relations', RelationViewSet, basename='relation')
+
+urlpatterns = [
+    path('', api_root, name='api-root'),
+    path('', include(router.urls)),
+]
