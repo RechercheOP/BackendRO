@@ -6,12 +6,19 @@ from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.reverse import reverse
+# Au début du fichier, importez les permissions
+from rest_framework.permissions import IsAuthenticated, IsAdminUser
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
+
+from .permissions import IsOwnerOrReadOnly
+
 
 from .models import Family, Member, Relation
 from .serializers import (
     FamilySerializer, FamilyDetailSerializer,
     MemberSerializer, RelationSerializer
 )
+from django.db import models
 
 
 @api_view(['GET'])
@@ -35,10 +42,13 @@ class FamilyViewSet(viewsets.ModelViewSet):
     search_fields = ['name', 'description']
     ordering_fields = ['name', 'created_at']
     ordering = ['-created_at']
+    permission_classes = [IsOwnerOrReadOnly]
 
     def get_queryset(self):
         # Seules les familles créées par l'utilisateur courant sont accessibles
-        return Family.objects.filter(created_by=self.request.user)
+        return Family.objects.filter(
+            models.Q(is_public=True) | models.Q(created_by=self.request.user)
+        )
 
     def get_serializer_class(self):
         # Utiliser un serializer différent pour les détails
@@ -62,15 +72,20 @@ class MemberViewSet(viewsets.ModelViewSet):
     Permet la création, la lecture, la mise à jour et la suppression de membres.
     """
     serializer_class = MemberSerializer
-    parser_classes = [MultiPartParser, FormParser]
+    # MODIFICATION CRITIQUE ICI: ajouter JSONParser à la liste des parsers
+    parser_classes = [JSONParser, MultiPartParser, FormParser]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ['family', 'gender']
     search_fields = ['first_name', 'last_name', 'occupation', 'birth_place']
     ordering_fields = ['first_name', 'last_name', 'birth_date', 'death_date']
+    permission_classes = [IsOwnerOrReadOnly]
+
 
     def get_queryset(self):
         # Seuls les membres des familles créées par l'utilisateur courant sont accessibles
-        return Member.objects.filter(family__created_by=self.request.user)
+        return Member.objects.filter(
+            models.Q(family__is_public=True) | models.Q(family__created_by=self.request.user)
+        )
 
     @action(detail=False, methods=['post'])
     def upload_photo(self, request):
@@ -140,6 +155,32 @@ class MemberViewSet(viewsets.ModelViewSet):
             ).data
 
         return Response(result)
+    
+    def update(self, request, *args, **kwargs):
+        # Journaliser la requête pour le débogage
+        print(f"UPDATE - Content-Type: {request.content_type}")
+        print(f"UPDATE - Data: {request.data}")
+        
+        # Suppression de la référence à la photo si c'est une chaîne
+        # (les URLs ne doivent pas être traitées comme des fichiers)
+        if 'photo' in request.data and isinstance(request.data['photo'], str):
+            data = request.data.copy()  # Créer une copie mutable des données
+            del data['photo']  # Supprimer la référence à la photo
+            request._full_data = data  # Remplacer les données de la requête
+        
+        return super().update(request, *args, **kwargs)
+        
+    def partial_update(self, request, *args, **kwargs):
+        # Même logique que pour update
+        print(f"PATCH - Content-Type: {request.content_type}")
+        print(f"PATCH - Data: {request.data}")
+        
+        if 'photo' in request.data and isinstance(request.data['photo'], str):
+            data = request.data.copy()
+            del data['photo'] 
+            request._full_data = data
+        
+        return super().partial_update(request, *args, **kwargs)
 
 
 class RelationViewSet(viewsets.ModelViewSet):
@@ -152,9 +193,13 @@ class RelationViewSet(viewsets.ModelViewSet):
     filterset_fields = ['family', 'source', 'target', 'type']
     ordering_fields = ['type']
 
+    permission_classes = [IsAuthenticated, IsOwnerOrReadOnly]
+    
     def get_queryset(self):
-        # Seules les relations des familles créées par l'utilisateur courant sont accessibles
-        return Relation.objects.filter(family__created_by=self.request.user)
+        # Retourner les relations des familles publiques OU créées par l'utilisateur
+        return Relation.objects.filter(
+            models.Q(family__is_public=True) | models.Q(family__created_by=self.request.user)
+        )
 
     @action(detail=False, methods=['get'])
     def by_member(self, request):

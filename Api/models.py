@@ -12,12 +12,15 @@ class Family(models.Model):
     description = models.TextField(_("Description"), blank=True)
     created_at = models.DateTimeField(_("Date de création"), auto_now_add=True)
     updated_at = models.DateTimeField(_("Date de modification"), auto_now=True)
+    # Api/models.py - dans la classe Family
+    is_public = models.BooleanField(_("Famille publique"), default=False)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         related_name='families',
         verbose_name=_("Créé par")
     )
+    
 
     class Meta:
         verbose_name = _("Famille")
